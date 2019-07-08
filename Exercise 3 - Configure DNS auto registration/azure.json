@@ -1,0 +1,7 @@
+{
+  "tenantId": "<tenantId>",
+  "subscriptionId": "<subscriptionId>",
+  "resourceGroup": "emobility-aks-rg-poc",
+  "aadClientId": "<appId>",
+  "aadClientSecret": "<aadClientSecret>"
+}

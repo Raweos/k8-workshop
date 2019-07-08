@@ -1,0 +1,156 @@
+1. Create aks cluster without network-policy
+
+	>az aks create ^
+		--resource-group emobility-aks-rg-poc ^
+		--name <your_cluster_name> 
+	
+2. Get credentials for your cluster
+
+	az aks get-credentials --resource-group emobility-aks-rg-poc --name <your_cluster_name> 
+
+3. Install NPM DaemonSet to your cluster. It will allow your network policies to work
+
+	>kubectl apply -f npm-daemonset.yaml
+
+	You should get response:
+		serviceaccount/azure-npm created
+		clusterrole.rbac.authorization.k8s.io/azure-npm created
+		clusterrolebinding.rbac.authorization.k8s.io/azure-npm-binding created
+		daemonset.extensions/azure-npm created
+		
+4. Check if there are azure-npm pods running in kube-system namespace
+
+	>kubectl get pods --namespace kube-system
+	
+5. Install Kubernetes-nginx ingress controller
+
+	>kubectl apply -f nginx.yaml
+	
+	You should get response:
+		configmap/nginx-configuration created
+		configmap/tcp-services created
+		configmap/udp-services created
+		serviceaccount/nginx-ingress-serviceaccount created
+		clusterrole.rbac.authorization.k8s.io/nginx-ingress-clusterrole created
+		role.rbac.authorization.k8s.io/nginx-ingress-role created
+		rolebinding.rbac.authorization.k8s.io/nginx-ingress-role-nisa-binding created
+		clusterrolebinding.rbac.authorization.k8s.io/nginx-ingress-clusterrole-nisa-binding created
+		deployment.apps/nginx-ingress-controller created
+		service/ingress-nginx created
+		deployment.extensions/default-http-backend created
+		service/default-http-backend created
+	
+6. Check if your ingress controller acquired EXTERNAL-IP
+	After creating ingress in step 5 AKS will create new External LoadBalancer resource in Azure to make your cluster publicly accessible.
+	This usually takes few minutes. You can wait for Public IP using --watch command switch.
+	
+	>kubectl get services -n default --watch
+	
+	After few minutes you should see service named ingress-nginx with filled EXTERNAL-IP field. Write down somewhere IP you got.
+	
+7. Install sample application
+
+	>kubectl apply -f bookinfo.yaml
+
+	Response should be:
+		service/details created
+		deployment.extensions/details-v1 created
+		service/ratings created
+		deployment.extensions/ratings-v1 created
+		service/reviews created
+		deployment.extensions/reviews-v1 created
+		deployment.extensions/reviews-v2 created
+		deployment.extensions/reviews-v3 created
+		service/productpage created
+		deployment.extensions/productpage-v1 created
+		ingress.extensions/gateway created
+		
+	As result of this command you created 4 services: productpage, reviews, ratings, details. You can find app diagram in file: app-diagram.svg
+	
+8. Check if application is working
+
+	Use your browser, and go to: https://<EXTERNAL-IP-FROM-STEP-6>/productpage?u=normal
+	
+9. Apply deny all policy
+
+	>kubectl apply -f policy-all-deny.yaml
+	
+	After applying this policy all ingress traffic in namespace default should be prohibited, so your app should stop working.
+	Check if your app still works, please open new session in your browser.
+	In next steps you will be whitelisting communication to make app works again.
+	
+10. Allow ingress traffic to your nginx-ingress controller 
+
+	>kubectl apply -f policy-nginx.yaml
+	
+	Now you should be able to reach nginx, go to your app site again and check if you will get 504 Gateway Time-out from nginx.
+	
+11. Allow productpage ingress traffic
+
+	>kubectl apply -f policy-product-page.yaml
+	
+	This policy allow ingress traffic to pod running productpage from ingress-nginx via 9080 port.
+	Check if productpage works(you should still get error from details and reviews services).
+	
+12. Allow details ingress traffic
+
+	>kubectl apply -f policy-details.yaml
+	
+	Now you allowed ingress traffic to pod matching label app: details from pod matching label app: productpage via port 9080.
+	Check on productpage if book details are working.
+	
+13. Allow reviews ingress traffic
+
+	Now try to define network policy that will allow ingress traffic from pod labeled "app: productpage" to reach pod labeled "app: reviews".
+	If you don't want to waste time on thinking, here is solution encoded with base-64:
+CWFwaVZlcnNpb246IG5ldHdvcmtpbmcuazhzLmlvL3YxDQpraW5kOiBOZXR3b3JrUG9saWN5DQptZXRhZGF0YToNCiAgbmFtZTogZGVmYXVsdC1yZXZpZXdzLWFsbG93DQogIG5hbWVzcGFjZTogZGVmYXVsdA0Kc3BlYzoNCiAgcG9kU2VsZWN0b3I6DQogICAgbWF0Y2hMYWJlbHM6DQogICAgICBhcHA6IHJldmlld3MNCiAgcG9saWN5VHlwZXM6DQogIC0gSW5ncmVzcw0KICBpbmdyZXNzOg0KICAtIHBvcnRzOg0KICAgIC0gcG9ydDogOTA4MA0KICAgIGZyb206DQogICAgLSBwb2RTZWxlY3RvcjoNCiAgICAgICAgbWF0Y2hMYWJlbHM6DQogICAgICAgICAgYXBwOiBwcm9kdWN0cGFnZSA
+
+	After applying policy, check if reviews are displayed(Refresh site few times to get to version without ratings. If you are confused, look at app diagram).
+	
+14. Allow ratings ingress traffic
+
+	>kubectl apply -f policy-ratings.yaml
+	
+	Now ratings should be displayed also.
+	
+15. Testing egress policies 
+
+	You will enter shell of one of default-http-backend pods and try to get response from http://itestjava.com website
+	
+	List pods:
+	>kubectl get pods -n default | find "default"
+	
+	Copy name of one pod and run command:
+	>kubectl exec -it <name-of-pod> -n default -- /bin/sh
+	
+	And then try to wget site
+	>wget http://itestjava.com -O index1.html
+	
+	File  should be downloaded. Now you can exit shell.
+
+16. Testing egress policies - block traffic
+
+	Apply policy-all-deny-egress.yaml, which modifies policy-all-deny by adding Egress policy type
+	>kubectl apply -f policy-all-deny-egress.yaml
+	
+	Now, again enter pod shell 
+	>kubectl exec -it <name-of-pod> -n default -- /bin/sh
+	
+	And then try to wget site
+	>wget http://itestjava.com -O index2.html
+	
+	You should get: wget: bad address 'itestjava.com'.
+	Because egress traffic is blocked.
+	
+	Try to enter your productpage site app. It shouldn't work now. Why?
+		-NetworkPolicy resource in Kubernetes is LIFO ordered - policies are ewaluated top-to-bottom.
+		-Egress policy blocked DNS queries from pods.
+		-Egress policies blocked egress traffic of productpage to services, and traffic of review service to rating service.
+
+17. Clean up all policies
+
+	>kubectl delete --all networkpolicies
+	
+	
+	
+

@@ -1,0 +1,72 @@
+1. Create DNS Zone in Azure
+
+	Run command:
+	>az network dns zone create -g emobility-aks-rg-poc -n <YOUR_UNIQUE_PREFIX>.aks.becomeazure.ninja
+	
+2. Get list of Azure DNS server names
+
+	Run command:
+	>az network dns zone show -g emobility-aks-rg-poc -n rk.aks.becomeazure.ninja --query "nameServers" -o tsv
+	
+	Go to portal.azure.com and check if DNS zone resource was created.
+	
+3. Set DNS Subnet delegation for each record form step before.
+
+	For each server name you got from step before run command:
+	>az network dns record-set ns add-record -g emobility-aks-rg-poc -z <YOUR_UNIQUE_PREFIX>.becomeazure.ninja -n <YOUR_UNIQUE_PREFIX> -d <AZURE_DNS_SERVER_NAME>
+	
+4. Check if your DNS name will be resolved
+
+	Use command nslookup to check if your DNS name will be resolved:
+	>nslookup <YOUR_UNIQUE_PREFIX>.becomeazure.ninja <AZURE_DNS_SERVER_NAME>
+
+5. Create the service principal for DNS by AKS.
+
+	Run command:
+	>az ad sp create-for-rbac -n ExternalDnsServicePrincipal<YOUR_UNIQUE_PREFIX> --skip-assignment
+	
+	As result you will get credential data in JSON format, save it for later.
+
+6. Assign the rights for the service principal(OWNER COMMAND).
+
+	Run command:
+	>az role assignment create --assignee http://ExternalDnsServicePrincipal<YOUR_UNIQUE_PREFIX> --role contributor --resource-group emobility-aks-rg-poc
+	
+7. Prepare azure.json using parameters from step 5.
+	
+	Edit file azure.json.
+	- Replace <tenantId> with tenant from step 5
+	- Replace <appId> with appId from step 5
+	- Replace <aadClientSecret> with password from step 5
+	
+	Last thing to replace is <subscriptionId>. To get subscription id run command:
+	>az account show
+	
+	Now use value of "id" to replace <subscriptionId>  
+	
+8. Create secret
+
+	Create secret from edited azure.json file.
+	Run command:
+	>kubectl create secret generic azure-config-file --from-file=azure.json
+	
+9. Deploy ExternalDNS
+	
+	To deploy ExternalDNS run command:
+	>kubectl apply -f externalDNS.yaml
+
+10. Deploy test app
+	
+	Run command:
+	>kubectl apply -f kuard.yaml
+	
+10. Prepare ingress.yaml
+	
+	Replace <YOUR_UNIQUE_PREFIX> in ingress.yaml with prefix you used before.
+	Run command:
+	>kubectl apply -f ingress.yaml
+
+11. Check DNS auto registration
+
+	Go to portal.azure.com, to your DNS zone resource and check if entry named "demo" appeared in the list.
+	

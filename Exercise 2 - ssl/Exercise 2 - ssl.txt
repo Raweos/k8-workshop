@@ -1,0 +1,55 @@
+﻿1. Install cert-manager
+
+	Create namespace for cert-manager
+	>kubectl create namespace cert-manager
+	
+	Disable validation on namespace
+	>kubectl label namespace cert-manager certmanager.k8s.io/disable-validation=true
+	
+	Why? 
+	If you’ve installed cert-manager with custom manifests or have performed an upgrade from an earlier version,
+	it’s important to make sure that the namespace that the webhook is running in has an additional label applied to it in order to
+	disable resource validation on the namespace that the webhook runs in.
+	More info: https://docs.cert-manager.io/en/latest/getting-started/webhook.html
+	
+	Deploy cert-manager
+	>kubectl apply -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.7/deploy/manifests/cert-manager.yaml --validate=false
+	
+2. Set up custom DNS name for your public ip
+
+	You need id of your public ip resource to set its DNS name. To get id run this query:
+	>az network public-ip list --query "[?ipAddress!=null]|[?contains(ipAddress, '<YOUR_IP_ADDRESS>')].[id]"
+
+	Now use id you got to set custom helper DNS name for public IP
+	>az network public-ip update --ids <PASTE_HERE_ID> --dns-name <custom_unique_dns_name>
+	
+	Now you have your own dns name, something like <custom_unique_dns_name>.westeurope.cloudapp.azure.com
+	To check how exactly does it look, run query:
+	>az network public-ip list --query "[?ipAddress!=null]|[?contains(ipAddress, '<YOUR_IP_ADDRESS>')].[dnsSettings][0][0].[fqdn]" -o tsv
+	
+3. Create ClusterIssuer definition
+
+	Edit file letsencrypt-prod.yaml and replace <mail> with your mail. This file contains ClusterIssuers definition.
+	It is useful when you want to provide the ability to obtain certificates from a central authority 
+	(e.g. Letsencrypt, or your internal CA) and you run single-tenant clusters.
+	More info: https://docs.cert-manager.io/en/latest/reference/clusterissuers.html
+	
+	Run command to create ClusterIssuer:
+	>kubectl apply -f letsencrypt-prod.yaml
+	
+4. Deploy Let's encrypt SSL certificate
+
+	Edit file certificates.yaml and replace <host> with DNS name you set up before.
+	
+	Run command to create certificate resource:
+	>kubectl apply -f certificates.yaml
+	
+5. Make ingress use your DNS name
+
+	Edit file ingress.yaml and replace <host> with your DNS name
+	
+	Run command to update ingress of your test app from exercise 1:
+	>kubectl apply -f ingress.yaml
+	
+	Go to your app and check if certificate works
+	

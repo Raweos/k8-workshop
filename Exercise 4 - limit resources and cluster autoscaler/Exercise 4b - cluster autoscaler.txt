@@ -1,0 +1,80 @@
+1. Scale down cluster.
+
+	Scale down your cluster to single node. Find your AKS in portal.azure.com,
+	go to Scale menu, change 3 to 1 and save.
+	
+2. Deploy unschedulable pods - lack of system resources
+
+	Run command:
+	>kubectl run nginx-scale --image=nginx --replicas=5 --port=80 --requests=cpu=500m,memory=4Gi
+	
+	It will try to create pods, but should fail due to lack of resources.
+	
+	Run command to get a list of pods:
+	>kubectl get pods
+	
+	Now describe one of them which is in Pending state. Run command:
+	>kubectl describe pod <NAME_OF_POD_IN_PENDING_STATE>
+	
+	You should get something like this:
+	Warning  FailedScheduling  34s (x6 over 2m48s)  default-scheduler  0/1 nodes are available: 1 Insufficient memory.
+
+3. Create the service principal for DNS by AKS.
+	
+	Replace YOU_CLUSTER_NAME placeholder and run command: 
+	>az ad sp create-for-rbac -n ClusterAutoscaler<YOU_CLUSTER_NAME> --skip-assignment
+	
+	Save result you get.
+	
+4. Assign the rights for the service principal.
+
+	You have to assign rights for service principal You created.
+	Replace YOU_CLUSTER_NAME and run command:
+	>az role assignment create --assignee http://ClusterAutoscaler<YOU_CLUSTER_NAME> --role contributor --resource-group emobility-aks-rg-poc
+	
+	Replace YOU_CLUSTER_NAME and MC-AKS-RESOURCE-GROUP-NAME and run command:
+	>az role assignment create --assignee http://ClusterAutoscaler<YOU_CLUSTER_NAME> --role contributor --resource-group <MC-AKS-RESOURCE-GROUP-NAME>
+	
+5. Prepare cluster-autoscaler.yaml
+	
+	Edit cluster-autoscaler.yaml and replace placeholders with data you got in step 3 and cluster data.
+	All values have to be encoded with base 64. You can use https://www.base64encode.org/
+	
+	Run command to create autoscaler:
+	>kubectl apply -f cluster-autoscaler.yaml
+	
+6. Check if autoscaler works
+
+	Get list of pods in kube-system namespace:
+	>kubectl get pods -n kube-system
+	
+	Copy name of pod named cluster-autoscaler-xyz
+	
+	Replace <AUTOSCALER_POD_NAME> and get pod logs:
+	>kubectl logs <AUTOSCALER_POD_NAME> -n kube-system
+	
+	You should see something like this:
+	Estimated 5 nodes needed in nodepool1
+	Final scale-up plan: [{nodepool1 1->6 (max: 6)}]
+	Scale-up: setting group nodepool1 size to 6
+	Setting size for cluster ("aks-test") with new count (6)
+	Current size: 1, Target size requested: 6
+	
+	Run command to see that new nodes appeared:
+	>kubectl top nodes
+	
+	Run command to check if pods of nginx-scale are running:
+	>kubectl get pods
+	
+7. Cleanup
+
+	Delete nginx-scale:
+	>kubectl delete deployments nginx-scale
+	
+	Check if autoscaler will scale down cluster(it can take around 10 minutes):
+	>kubectl get pods -n kube-system
+	>kubectl logs -f -n kube-system <cluster-autoscaler-pod-name>
+	
+	
+	
+

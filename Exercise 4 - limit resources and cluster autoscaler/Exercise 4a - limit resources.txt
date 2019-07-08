@@ -1,0 +1,90 @@
+1. Limit resources for container on namespace
+
+	In this lab we will create namespaces that reflect a representative example of an organization's environments:
+	dev, uat and prod. We will also apply the appropriate permissions, limits and resource quotas to each of the namespaces.
+	
+2. Create namespaces
+
+	Run command to create namespaces:
+	>kubectl apply -f create-namespaces.yaml
+	
+	Namespaces dev, uat and prod should be created. You can verify it, run command to get all namespaces
+	>kubectl get ns
+	
+3. Assign CPU, memory and storage limits to namespaces.
+
+	Look at file namespace-limitranges.yaml. You can see there 3 LimitRange object.
+	In metadata element there is a namespace name that LimitRange is applied to.
+	Each LimitRange defines max, min and default resource limits for containers.
+	If you don't specify limits in container definition, default limit will be applied.
+	
+	Run command to create LimitRanges:
+	>kubectl apply -f namespace-limitranges.yaml
+	
+	Check if resource limits are listed when describing namespace. 
+	Run command:
+	>kubectl describe ns uat
+	
+	You should see table with resource limits applied to this namespace.
+	More info about LimitRange: https://kubernetes.io/docs/concepts/policy/limit-range/
+	
+	
+4. Assign CPU, Memory and Storage Quotas to Namespaces
+
+	We are going to limit resources for each namespace we created.
+	Look at the file namespace-quotas.yaml, You can see there what kind and what amout of resources we limit.
+	In quotas there are constraints for requests and limits. Requests are what the container is guaranteed to get.
+	If a container requests a resource, Kubernetes will only schedule it on a node that can give it that resource.
+	Limits, on the other hand, make sure a container never goes above a certain value.
+	The container is only allowed to go up to the limit, and then it is restricted.
+	
+	In file there is also persistentvolumeclaims property which indicates the total number of persistent volume claims that can exist in the namespace.
+	
+	Run command to apply quotas:
+	>kubectl apply -f namespace-quotas.yaml
+	
+	Run command to get info about quotas applied to dev namespace:
+	>kubectl describe ns dev
+	
+	More info about resource quotas: https://kubernetes.io/docs/concepts/policy/resource-quotas/
+
+5. Test out Limits and Quotas in dev Namespace.
+
+	Run command:
+	>kubectl run nginx-limittest --image=nginx --restart=Never --replicas=1 --port=80 --requests=cpu=100m,memory=256Mi -n dev
+	
+	Expected result: Error from server (Forbidden): pods "nginx-limittest" is forbidden: minimum cpu usage per Container is 200m, but request is 100m.
+	Forbidden due to assignment of CPU too low
+	
+	Run command:
+	>kubectl run nginx-limittest --image=nginx --restart=Never --replicas=1 --port=80 -n dev
+	
+	Expected result: Pass due to automatic assignment within limits via defaults
+	You can check if resources requests and limits for created pod match those defined in namespace.
+	>kubectl describe ns dev 
+	>kubectl describe pod nginx-limittest -n dev
+	
+	Run command:
+	>kubectl run nginx-quotatest --image=nginx --restart=Never --replicas=1 --port=80 --requests=cpu=500m,memory=1Gi -n dev
+	
+	Expected result: The Pod "nginx-quotatest" is invalid: spec.containers[0].resources.requests: Invalid value: "1Gi": must be less than or equal to memory limit
+	Forbidden due to memory quota exceeded
+	
+	Run command:
+	>kubectl run nginx-quotatest --image=nginx --restart=Never --replicas=1 --port=80 --requests=cpu=500m,memory=512Mi -n dev
+	
+	Expected result: Pass due to memory within quota
+	
+	You can run command to check how much resources are used:
+	>kubectl describe ns dev
+
+6. Cleanup
+
+	Delete namespaces you created:
+	>kubectl delete ns dev
+	>kubectl delete ns prod
+	>kubectl delete ns uat
+
+	
+
+	
